@@ -2,7 +2,7 @@
 
 ## Як це працює зараз (GitHub Actions)
 
-- Розклад: `.github/workflows/autopost.yml` запускає `autopost.py run` кожні 20 хв з 07:00 до 23:00 за Києвом.
+- Розклад: `.github/workflows/autopost.yml` щогодини запускає цикл, який з 07:00 до 23:00 за Києвом кожні 3 хв виконує `autopost.py run`. Репозиторій публічний, тому хвилини GitHub Actions безкоштовні.
 - Черга: `posts_queue.csv` у цьому репозиторії. Після кожної публікації бот сам комітить оновлений файл (статус, id поста).
 - Токен Threads зберігається в секреті репозиторію `THREADS_ACCESS_TOKEN` (Settings → Secrets and variables → Actions).
 - Щодня о 08:05 за Києвом бот перевіряє токен. Якщо токен недійсний, GitHub надішле лист про збій.

@@ -2,14 +2,14 @@ name: Автопостинг Threads
 
 on:
   schedule:
-    # кожні 20 хв (у хвилини 7/27/47, щоб уникнути пікового навантаження GitHub о :00) з 05:00 до 20:59 UTC (07:00-22:59 за Києвом взимку); ~1500 хв/міс, у межах безкоштовних 2000
-    - cron: "7,27,47 5-20 * * *"
+    # щогодини запускає (або ставить у чергу) робочий цикл; цикл сам працює лише 07:00-23:00 за Києвом
+    - cron: "17 * * * *"
     # щоденна перевірка токена
     - cron: "5 6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Лише показати, що буде опубліковано"
+        description: "Лише показати, що буде опубліковано (один прохід)"
         type: boolean
         default: false
 
@@ -24,7 +24,7 @@ jobs:
   post:
     if: github.event.schedule != '5 6 * * *'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -34,27 +34,32 @@ jobs:
 
       - run: pip install requests
 
-      - name: Публікація постів, час яких настав
+      - name: Цикл публікацій (кожні 3 хв, до 5 год 40 хв)
         env:
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
           TIMEZONE: Europe/Kyiv
           MAX_POSTS_PER_DAY: "5"
           MIN_GAP_MINUTES: "90"
           SELF_REPLY_DELAY_MINUTES: "3-10"
+          DRY: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
           if [ -z "$THREADS_ACCESS_TOKEN" ]; then echo "Немає секрету THREADS_ACCESS_TOKEN"; exit 1; fi
-          python autopost.py run ${{ inputs.dry_run && '--dry-run' || '' }}
-
-      - name: Зберегти стан черги
-        if: always()
-        run: |
           git config user.name "autopost-bot"
           git config user.email "autopost-bot@users.noreply.github.com"
-          git add posts_queue.csv
-          if git diff --cached --quiet; then echo "Черга без змін"; exit 0; fi
-          git commit -m "autopost: оновлено чергу"
-          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
-          exit 1
+          end=$(( $(date +%s) + 340*60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            hour=$(TZ=Europe/Kyiv date +%H)
+            if [ "$hour" -lt 7 ] || [ "$hour" -ge 23 ]; then echo "Поза робочими годинами ($hour:00 Київ), завершую."; break; fi
+            git pull -q --rebase || true
+            python autopost.py run $DRY || echo "autopost завершився з помилкою"
+            if ! git diff --quiet posts_queue.csv; then
+              git add posts_queue.csv
+              git commit -qm "autopost: оновлено чергу"
+              for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+            fi
+            [ -n "$DRY" ] && break
+            sleep 180
+          done
 
   token-check:
     # щодня о 06:05 UTC перевіряє, що токен живий; якщо ні, GitHub надішле лист про збій

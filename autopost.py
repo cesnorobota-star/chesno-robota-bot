@@ -138,6 +138,14 @@ def run_self_replies(rows: list[dict], dry: bool) -> None:
 def cmd_run(rows: list[dict], dry: bool) -> bool:
     """Публікує ОДИН пост, час якого настав. Повертає True, якщо щось опубліковано."""
     refresh_token_if_needed()
+    if dry:
+        try:
+            me = Threads().me()
+            print(f"Токен дійсний: акаунт @{me.get('username')}")
+            print("Квота:", Threads().publishing_limit())
+        except ThreadsError as e:
+            print("Токен не працює:", e)
+            raise SystemExit(1)
     run_self_replies(rows, dry)
     today = posted_today(rows)
     if len(today) >= MAX_PER_DAY:

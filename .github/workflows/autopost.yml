@@ -1,0 +1,69 @@
+name: Автопостинг Threads
+
+on:
+  schedule:
+    # кожні 20 хв з 05:00 до 20:59 UTC (07:00-22:59 за Києвом взимку); ~1500 хв/міс, у межах безкоштовних 2000
+    - cron: "*/20 5-20 * * *"
+    # щоденна перевірка токена
+    - cron: "5 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Лише показати, що буде опубліковано"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  post:
+    if: github.event.schedule != '5 6 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Публікація постів, час яких настав
+        env:
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          TIMEZONE: Europe/Kyiv
+          MAX_POSTS_PER_DAY: "5"
+          MIN_GAP_MINUTES: "90"
+          SELF_REPLY_DELAY_MINUTES: "3-10"
+        run: |
+          if [ -z "$THREADS_ACCESS_TOKEN" ]; then echo "Немає секрету THREADS_ACCESS_TOKEN"; exit 1; fi
+          python autopost.py run ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Зберегти стан черги
+        if: always()
+        run: |
+          git config user.name "autopost-bot"
+          git config user.email "autopost-bot@users.noreply.github.com"
+          git add posts_queue.csv
+          if git diff --cached --quiet; then echo "Черга без змін"; exit 0; fi
+          git commit -m "autopost: оновлено чергу"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1
+
+  token-check:
+    # щодня о 06:05 UTC перевіряє, що токен живий; якщо ні, GitHub надішле лист про збій
+    if: github.event.schedule == '5 6 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Перевірка токена Threads
+        env:
+          T: ${{ secrets.THREADS_ACCESS_TOKEN }}
+        run: |
+          curl -sf "https://graph.threads.net/v1.0/me?fields=username&access_token=$T" > /dev/null \
+            || { echo "Токен Threads недійсний. Згенеруйте новий і оновіть секрет THREADS_ACCESS_TOKEN."; exit 1; }
